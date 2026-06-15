@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>diagram</title>
+  <style>
+    :root {
+      --workbench: #11141a;
+      --grid: rgba(255, 255, 255, 0.035);
+      --grid-strong: rgba(255, 255, 255, 0.06);
+      --sheet: #fbfbf9;
+      --ink-dim: #8b94a3;
+      --ink: #e6e9ee;
+      --line: rgba(255, 255, 255, 0.08);
+      --live: #46c08a;
+      --waiting: #d9a441;
+      --down: #d0606a;
+      --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      background: var(--workbench);
+      color: var(--ink);
+      font-family: var(--mono);
+      overflow: hidden;
+      /* faint engineer's-mat grid: present but never competing with the diagram */
+      background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+        linear-gradient(var(--grid-strong) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-strong) 1px, transparent 1px);
+      background-size: 28px 28px, 28px 28px, 140px 140px, 140px 140px;
+    }
+
+    /* ---- top bar ---- */
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 46px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 16px;
+      background: linear-gradient(to bottom, rgba(17, 20, 26, 0.92), rgba(17, 20, 26, 0.72));
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--line);
+      z-index: 10;
+      font-size: 12.5px;
+    }
+
+    .name {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .project {
+      color: var(--ink-dim);
+    }
+
+    .project::after {
+      content: "/";
+      margin-left: 8px;
+      opacity: 0.5;
+    }
+
+    .file {
+      color: var(--ink);
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .spacer {
+      flex: 1;
+    }
+
+    /* status pill */
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 4px 10px 4px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--ink-dim);
+      letter-spacing: 0.02em;
+      user-select: none;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--ink-dim);
+      flex: none;
+    }
+
+    .status[data-state="live"] .dot {
+      background: var(--live);
+      box-shadow: 0 0 0 0 rgba(70, 192, 138, 0.5);
+      animation: pulse 2.4s ease-out infinite;
+    }
+
+    .status[data-state="live"] {
+      color: var(--live);
+    }
+
+    .status[data-state="waiting"] .dot {
+      background: var(--waiting);
+    }
+
+    .status[data-state="waiting"] {
+      color: var(--waiting);
+    }
+
+    .status[data-state="down"] .dot {
+      background: var(--down);
+    }
+
+    .status[data-state="down"] {
+      color: var(--down);
+    }
+
+    @keyframes pulse {
+      0% {
+        box-shadow: 0 0 0 0 rgba(70, 192, 138, 0.45);
+      }
+
+      70% {
+        box-shadow: 0 0 0 7px rgba(70, 192, 138, 0);
+      }
+
+      100% {
+        box-shadow: 0 0 0 0 rgba(70, 192, 138, 0);
+      }
+    }
+
+    /* zoom controls */
+    .zoom {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .zoom button {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--ink-dim);
+      font-family: var(--mono);
+      font-size: 13px;
+      width: 30px;
+      height: 28px;
+      cursor: pointer;
+    }
+
+    .zoom button:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--ink);
+    }
+
+    .zoom button:focus-visible {
+      outline: 2px solid var(--live);
+      outline-offset: -2px;
+    }
+
+    .pct {
+      min-width: 46px;
+      text-align: center;
+      color: var(--ink-dim);
+      font-size: 11.5px;
+    }
+
+    /* ---- workbench / stage ---- */
+    #stage {
+      position: absolute;
+      inset: 46px 0 0 0;
+      overflow: hidden;
+      cursor: grab;
+    }
+
+    #stage.panning {
+      cursor: grabbing;
+    }
+
+    #pan {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+
+    .sheet {
+      background: transparent;
+      border-radius: 10px;
+      padding: 20px;
+    }
+
+    .sheet svg {
+      display: block;
+      height: auto;
+      max-width: none;
+    }
+
+    /* brief confirmation ring when a fresh render lands */
+    .sheet.flash {
+      animation: land 0.55s ease-out;
+    }
+
+    @keyframes land {
+      0% {
+        box-shadow: 0 0 0 2px var(--live);
+      }
+
+      100% {
+        box-shadow: 0 0 0 0 rgba(70, 192, 138, 0);
+      }
+    }
+
+    /* ---- error banner (keeps last good diagram visible behind it) ---- */
+    #error {
+      position: fixed;
+      left: 16px;
+      right: 16px;
+      top: 58px;
+      margin: 0 auto;
+      max-width: 720px;
+      background: #2a1416;
+      border: 1px solid rgba(208, 96, 106, 0.5);
+      border-left: 3px solid var(--down);
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: #f2c4c8;
+      font-size: 12.5px;
+      line-height: 1.5;
+      box-shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.7);
+      display: none;
+      white-space: pre-wrap;
+      z-index: 9;
+    }
+
+    #error.show {
+      display: block;
+    }
+
+    #error b {
+      color: var(--down);
+      font-weight: 600;
+      display: block;
+      margin-bottom: 4px;
+      letter-spacing: 0.03em;
+    }
+
+    /* ---- empty state ---- */
+    #empty {
+      position: absolute;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: var(--ink-dim);
+      text-align: center;
+      padding: 24px;
+    }
+
+    #empty.show {
+      display: flex;
+    }
+
+    #empty .big {
+      font-size: 13px;
+      color: var(--ink);
+    }
+
+    #empty code {
+      background: rgba(255, 255, 255, 0.06);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .status[data-state="live"] .dot {
+        animation: none;
+      }
+
+      .sheet.flash {
+        animation: none;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="name">
+      <span class="project" id="project" hidden></span>
+      <span class="file" id="file">no file</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="status" id="status" data-state="waiting"><span class="dot"></span><span
+        id="statusText">connecting</span></div>
+    <div class="zoom">
+      <button id="zout" title="Zoom out (-)">&minus;</button>
+      <button id="zfit" title="Fit (0)" class="pct"><span id="pct">100%</span></button>
+      <button id="zin" title="Zoom in (+)">+</button>
+    </div>
+  </header>
+
+  <div id="stage">
+    <div id="pan">
+      <div class="sheet" id="sheet"></div>
+    </div>
+    <div id="empty">
+      <div class="big">No diagram loaded</div>
+      <div>Open one with <code>?file=&lt;project&gt;/&lt;name&gt;.mmd</code></div>
+    </div>
+  </div>
+
+  <div id="error"></div>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    // NOTE: layout-elk is published at major version 0 — @11 does NOT exist and fails.
+    import elkLayouts from "https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0/dist/mermaid-layout-elk.esm.min.mjs";
+    mermaid.registerLayoutLoaders(elkLayouts);
+
+    // Category palette lives here, in ONE place. Diagrams only TAG nodes with a
+    // class name; they never specify colors. Reserved meanings: `muted` =
+    // infrastructure / de-emphasized, `danger` = error or failure states. The
+    // `category-a|b|c` slots mean whatever a given diagram needs.
+    const CATEGORY_CSS = `
+  .node rect, .node polygon, .node circle { rx: 10px; ry: 10px; }
+  .cluster rect { rx: 12px; ry: 12px; }
+
+  .edgeLabel, .edgeLabel p { background: #11141a !important; color: #cfd5de !important; }
+  .edgeLabel rect { fill: #11141a !important; opacity: 0.9 !important; }
+
+  .category-a > rect, .category-a > polygon, .category-a > circle { fill: #16321f !important; stroke: #34d399 !important; }
+  .category-a .nodeLabel { color: #dcfce9 !important; }
+  .cluster.category-a rect { fill: rgba(52,211,153,0.05) !important; stroke: rgba(52,211,153,0.30) !important; }
+  .cluster.category-a .nodeLabel { color: #7fd8b4 !important; }
+
+  .category-b > rect, .category-b > polygon, .category-b > circle { fill: #15273f !important; stroke: #5fa8fa !important; }
+  .category-b .nodeLabel { color: #e2edff !important; }
+  .cluster.category-b rect { fill: rgba(95,168,250,0.05) !important; stroke: rgba(95,168,250,0.30) !important; }
+  .cluster.category-b .nodeLabel { color: #a6c6f0 !important; }
+
+  .category-c > rect, .category-c > polygon, .category-c > circle { fill: #241f3d !important; stroke: #a78bfa !important; }
+  .category-c .nodeLabel { color: #ece7ff !important; }
+  .cluster.category-c rect { fill: rgba(167,139,250,0.06) !important; stroke: rgba(167,139,250,0.30) !important; }
+  .cluster.category-c .nodeLabel { color: #c4b5fd !important; }
+
+  .muted > rect, .muted > polygon, .muted > circle { fill: #21252e !important; stroke: #8c98a9 !important; }
+  .muted .nodeLabel { color: #e7eaef !important; }
+  .cluster.muted rect { fill: rgba(140,152,169,0.05) !important; stroke: rgba(140,152,169,0.30) !important; }
+  .cluster.muted .nodeLabel { color: #abb4c1 !important; }
+
+  .danger > rect, .danger > polygon, .danger > circle { fill: #3a1a1c !important; stroke: #f0746e !important; }
+  .danger .nodeLabel { color: #ffe2e0 !important; }
+  .cluster.danger rect { fill: rgba(240,116,110,0.06) !important; stroke: rgba(240,116,110,0.32) !important; }
+  .cluster.danger .nodeLabel { color: #f6a6a2 !important; }
+`;
+
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: "base",
+      layout: "elk",
+      fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+      flowchart: { useMaxWidth: false, htmlLabels: true },
+      sequence: { useMaxWidth: false },
+      themeVariables: {
+        darkMode: true,
+        background: "transparent",
+        primaryColor: "#1b1f27",
+        primaryBorderColor: "#3a4150",
+        primaryTextColor: "#e6e9ee",
+        lineColor: "#6e7888",
+        secondaryColor: "#15273f",
+        tertiaryColor: "#21252e",
+        fontSize: "15px",
+      },
+      themeCSS: CATEGORY_CSS,
+    });
+
+    const $ = (id) => document.getElementById(id);
+    const stage = $("stage"), pan = $("pan"), sheet = $("sheet");
+    const elProject = $("project"), elFile = $("file");
+    const elStatus = $("status"), elStatusText = $("statusText"), elPct = $("pct");
+    const elError = $("error"), elEmpty = $("empty");
+
+    // ---- which file ----
+    const fileParam = new URLSearchParams(location.search).get("file");
+    if (fileParam) {
+      const parts = fileParam.split("/");
+      const base = parts.pop();
+      elFile.textContent = base;
+      if (parts.length) { elProject.textContent = parts.join("/"); elProject.hidden = false; }
+      document.title = base;
+    } else {
+      elEmpty.classList.add("show");
+      pan.style.display = "none";
+    }
+
+    // ---- view transform (pan/zoom) ----
+    const view = { scale: 1, x: 0, y: 0 };
+    let userInteracted = false; // once true, keep the user's framing across live updates
+
+    function applyView() {
+      pan.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+      elPct.textContent = Math.round(view.scale * 100) + "%";
+    }
+
+    function fit() {
+      const r = sheet.getBoundingClientRect();
+      const w = r.width / view.scale, h = r.height / view.scale; // natural size
+      if (!w || !h) return;
+      const pad = 80;
+      const s = Math.min((stage.clientWidth - pad) / w, (stage.clientHeight - pad) / h, 1.5);
+      view.scale = s > 0 ? s : 1;
+      view.x = (stage.clientWidth - w * view.scale) / 2;
+      view.y = (stage.clientHeight - h * view.scale) / 2;
+      applyView();
+    }
+
+    function zoomAt(factor, cx, cy) {
+      const next = Math.min(8, Math.max(0.1, view.scale * factor));
+      const k = next / view.scale;
+      // keep the point under the cursor fixed
+      view.x = cx - (cx - view.x) * k;
+      view.y = cy - (cy - view.y) * k;
+      view.scale = next;
+      userInteracted = true;
+      applyView();
+    }
+
+    // wheel = zoom toward cursor
+    stage.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const rect = stage.getBoundingClientRect();
+      zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - rect.left, e.clientY - rect.top);
+    }, { passive: false });
+
+    // drag = pan
+    let dragging = false, sx = 0, sy = 0;
+    stage.addEventListener("pointerdown", (e) => {
+      dragging = true; userInteracted = true;
+      sx = e.clientX - view.x; sy = e.clientY - view.y;
+      stage.classList.add("panning");
+      stage.setPointerCapture(e.pointerId);
+    });
+    stage.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      view.x = e.clientX - sx; view.y = e.clientY - sy;
+      applyView();
+    });
+    const endDrag = () => { dragging = false; stage.classList.remove("panning"); };
+    stage.addEventListener("pointerup", endDrag);
+    stage.addEventListener("pointercancel", endDrag);
+
+    // buttons + keys
+    const center = () => [stage.clientWidth / 2, stage.clientHeight / 2];
+    $("zin").onclick = () => zoomAt(1.2, ...center());
+    $("zout").onclick = () => zoomAt(1 / 1.2, ...center());
+    $("zfit").onclick = () => { userInteracted = false; fit(); };
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "+" || e.key === "=") zoomAt(1.2, ...center());
+      else if (e.key === "-") zoomAt(1 / 1.2, ...center());
+      else if (e.key === "0") { userInteracted = false; fit(); }
+    });
+
+    // ---- status ----
+    function setStatus(state, text) {
+      elStatus.dataset.state = state;
+      elStatusText.textContent = text;
+    }
+
+    // ---- render ----
+    let renderId = 0;
+    function showError(msg) {
+      elError.innerHTML = "<b>diagram error</b>";
+      elError.appendChild(document.createTextNode(msg));
+      elError.classList.add("show");
+    }
+    function clearError() { elError.classList.remove("show"); elError.textContent = ""; }
+
+    async function render(content, missing) {
+      if (missing || !content.trim()) {
+        if (missing) showError("file not found yet — waiting for it to appear");
+        return;
+      }
+      const id = "d" + ++renderId;
+      try {
+        const { svg } = await mermaid.render(id, content);
+        clearError();
+        sheet.innerHTML = svg;
+        // flash confirmation
+        sheet.classList.remove("flash");
+        void sheet.offsetWidth; // restart animation
+        sheet.classList.add("flash");
+        if (!userInteracted) requestAnimationFrame(fit);
+      } catch (err) {
+        // keep the last good diagram on screen; just surface what broke
+        showError((err && err.message ? err.message : String(err)).trim());
+      }
+    }
+
+    // ---- live connection (SSE, server pushes on file change) ----
+    function connect() {
+      if (!fileParam) return;
+      setStatus("waiting", "connecting");
+      const es = new EventSource(`/events?file=${encodeURIComponent(fileParam)}`);
+
+      es.onopen = () => setStatus("live", "live");
+      es.onmessage = (e) => {
+        setStatus("live", "live");
+        let payload;
+        try { payload = JSON.parse(e.data); } catch { return; }
+        render(payload.content || "", payload.missing);
+      };
+      es.onerror = () => {
+        setStatus("down", "reconnecting");
+        // EventSource auto-reconnects; nothing else to do
+      };
+    }
+    connect();
+    window.addEventListener("resize", () => { if (!userInteracted) fit(); });
+  </script>
+</body>
+
+</html>

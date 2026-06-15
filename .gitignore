@@ -1,0 +1,7 @@
+*.log
+diagram-viewer.log
+.DS_Store
+.idea/
+.vscode/
+node_modules/
+*.bak.*
