@@ -500,6 +500,7 @@
 
     // ---- render ----
     let renderId = 0;
+    let lastRendered = null; // content currently on screen — lets us skip no-op re-renders
     function showError(msg) {
       elError.innerHTML = "<b>diagram error</b>";
       elError.appendChild(document.createTextNode(msg));
@@ -512,10 +513,13 @@
         if (missing) showError("file not found yet — waiting for it to appear");
         return;
       }
+      // Reconnects re-push the same contents; don't re-render or flash if nothing changed.
+      if (content === lastRendered) return;
       const id = "d" + ++renderId;
       try {
         const { svg } = await mermaid.render(id, content);
         clearError();
+        lastRendered = content;
         sheet.innerHTML = svg;
         // flash confirmation
         sheet.classList.remove("flash");
