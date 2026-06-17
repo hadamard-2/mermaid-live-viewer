@@ -82,7 +82,15 @@ If the request is genuinely unambiguous (e.g. "diagram the auth handshake" is pl
     # write the .mmd (chosen form, structure only) to ~/diagrams/$proj/<name>-$ts.mmd
     ```
 
-3. Give the user the URL to open:
+3. **Validate the `.mmd` before sharing it.** The viewer renders mermaid in the browser, so a syntax error otherwise only surfaces when the user refreshes. Catch it first with the offline validator (runs the same mermaid@11 parser):
+
+    ```bash
+    bun ~/diagrams/validate.mjs ~/diagrams/"$proj"/<name>-"$ts".mmd
+    ```
+
+   It prints `OK: <file>` (exit 0) or the exact parser error (exit 1). Run it after every write **and** every edit; fix and re-run until it passes, then share the URL. Common catch: a `;` inside a node label or a `Note` is read as a statement separator and breaks the parse — use an em dash / comma / period instead. (It checks grammar only, not layout.)
+
+4. Give the user the URL to open:
    `http://localhost:4242/?file=<proj>/<name>-<ts>.mmd`
    (Only the first diagram needs a fresh tab; later edits update in place.)
 
@@ -114,12 +122,16 @@ Only use these five class names. Never invent new ones, and never attach colors.
 
 ## Iterating
 
-When the user asks to add, remove, or change parts of the diagram you just made, **edit the same `.mmd` file in place**. The open tab re-renders instantly over SSE. Do not create a new file or a new URL. Only start a new file for a genuinely different diagram.
+**A clarifying question is not automatically an edit request.** After you show a diagram, the user often asks follow-ups. Decide which kind first: if it's a *conceptual* gap ("what does X even mean?"), answer it in chat and leave the diagram alone. Only edit when the question reveals the *picture itself* is unclear, wrong, or missing something. Reflexive edits add churn and can clutter a diagram that was already fine.
+
+When the user does ask to add, remove, or change parts of the diagram, **edit the same `.mmd` file in place** (then re-validate, per Step 2). The open tab re-renders instantly over SSE. Do not create a new file or a new URL. Only start a new file for a genuinely different diagram.
 
 You cannot reposition individual boxes; the layout is computed by ELK from the structure. To reshape a diagram, change the inputs the layout is computed from: flip the direction (`TD` ↔ `LR`), group related nodes into subgraphs, reorder edge declarations, add an invisible edge (`A ~~~ B`) to hint ordering, or adjust ELK spacing. If a user asks to move a specific box, translate it into one of these structural changes.
 
-If the user says the viewer shows an error, the mermaid syntax is invalid; fix the `.mmd` and the error clears on its own.
+If the user says the viewer shows an error, the mermaid syntax is invalid; run the Step 2 validator to pinpoint it, fix the `.mmd`, and the error clears on its own. (If you validated before sharing, this shouldn't happen.)
 
 ## Setup (one time, if missing)
 
 This skill needs `~/diagrams/server.js` and `~/diagrams/index.html` to exist and `bun` on PATH. If `curl` to `localhost:4242` fails and the server won't start, check `/tmp/diagram-viewer.log`.
+
+Validation (Step 2) additionally needs `~/diagrams/validate.mjs` and its deps (`mermaid`, `jsdom`) installed in the viewer dir. The repo's `install.sh` symlinks the script and installs the deps; if validation fails with a module-not-found, re-run `install.sh` (or `bun install` in the repo's `viewer/`).

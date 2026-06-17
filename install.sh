@@ -21,7 +21,20 @@ echo "installing mermaid-live-viewer from $REPO_DIR"
 mkdir -p "$DIAGRAMS_DIR" "$SKILLS_DIR"
 link "$REPO_DIR/viewer/index.html"       "$DIAGRAMS_DIR/index.html"
 link "$REPO_DIR/viewer/server.js"        "$DIAGRAMS_DIR/server.js"
+link "$REPO_DIR/viewer/validate.mjs"     "$DIAGRAMS_DIR/validate.mjs"
 link "$REPO_DIR/skill/visual-explainer"  "$SKILLS_DIR/visual-explainer"
+
+# Deps for the offline .mmd validator (mermaid + jsdom), installed next to the
+# real validate.mjs so it resolves them through the symlink. The viewer's
+# server.js needs none of this.
+echo "installing validator deps in viewer/"
+if command -v bun >/dev/null; then
+  ( cd "$REPO_DIR/viewer" && bun install )
+elif command -v npm >/dev/null; then
+  npm install --prefix "$REPO_DIR/viewer"
+else
+  echo "  note: no bun/npm on PATH — run 'bun install' in $REPO_DIR/viewer to enable validation"
+fi
 
 echo
 echo "done. next steps:"

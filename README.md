@@ -1,6 +1,6 @@
 # Mermaid Live Viewer
 
-A tiny local tool that renders [mermaid](https://mermaid.js.org/) diagrams in your browser and live-reloads them the instant the source file changes. It is built to pair with [Claude Code](https://docs.claude.com/en/docs/claude-code): you ask Claude Code to explain something visually, it writes a `.mmd` file, and a themed diagram appears in a browser tab that updates on every edit. No polling, no build step, one runtime dependency (bun).
+A tiny local tool that renders [mermaid](https://mermaid.js.org/) diagrams in your browser and live-reloads them the instant the source file changes. It is built to pair with [Claude Code](https://docs.claude.com/en/docs/claude-code): you ask Claude Code to explain something visually, it writes a `.mmd` file, and a themed diagram appears in a browser tab that updates on every edit. No polling, no build step; the viewer runs on bun alone.
 
 ## How it works
 
@@ -10,7 +10,7 @@ Three small pieces, with one rule between them: the viewer owns all *appearance*
 - `viewer/index.html` is the viewer. It opens an `EventSource` to the server, renders the pushed text with a customized mermaid theme, and re-renders on every push. It has drag-to-pan, wheel-zoom (toward the cursor), a live connection indicator, and an error overlay that keeps the last good diagram on screen when the syntax breaks. All theming lives here in one place, so every diagram looks consistent and you can restyle them all by editing one file.
 - `skill/visual-explainer/SKILL.md` is a Claude Code skill. It tells Claude Code where to put diagrams, how to name them, to start the server if it is not already running, and (importantly) to write structure only and never hardcode colors.
 
-The browser loads mermaid and the ELK layout engine from a CDN, so the only thing you install locally is bun.
+The browser loads mermaid and the ELK layout engine from a CDN, so the viewer itself needs only bun. (The optional offline `.mmd` validator installs `mermaid` and `jsdom` locally; `install.sh` handles it.)
 
 ## Prerequisites
 
@@ -28,7 +28,7 @@ cd mermaid-live-viewer
 ./install.sh
 ```
 
-`install.sh` symlinks `viewer/index.html` and `viewer/server.js` into `~/diagrams`, and `skill/visual-explainer` into `~/.claude/skills`. Because these are symlinks, a later `git pull` updates the live setup with no extra step. If a real (non-symlink) file already exists at one of those paths, it is backed up rather than overwritten.
+`install.sh` symlinks `viewer/index.html`, `viewer/server.js`, and `viewer/validate.mjs` into `~/diagrams`, and `skill/visual-explainer` into `~/.claude/skills`, then installs the validator's deps (`mermaid` + `jsdom`) via bun or npm. Because these are symlinks, a later `git pull` updates the live setup with no extra step. If a real (non-symlink) file already exists at one of those paths, it is backed up rather than overwritten.
 
 Then add the shell helper (recommended):
 
