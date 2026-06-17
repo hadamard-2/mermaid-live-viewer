@@ -5,3 +5,4 @@ diagram-viewer.log
 .vscode/
 node_modules/
 *.bak.*
+.playwright-mcp/

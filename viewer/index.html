@@ -191,6 +191,42 @@
       font-size: 11.5px;
     }
 
+    /* full-screen toggle */
+    .fsbtn {
+      appearance: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 30px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--ink-dim);
+      cursor: pointer;
+    }
+
+    .fsbtn:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--ink);
+    }
+
+    .fsbtn:focus-visible {
+      outline: 2px solid var(--live);
+      outline-offset: -2px;
+    }
+
+    /* immersive / full-screen presentation: hide the top bar and give the stage
+       the whole viewport. Toggled with `f` or the header button; also drives the
+       native Fullscreen API so the browser chrome hides too. */
+    body.immersive header {
+      display: none;
+    }
+
+    body.immersive #stage {
+      inset: 0;
+    }
+
     /* ---- workbench / stage ---- */
     #stage {
       position: absolute;
@@ -327,6 +363,12 @@
       <button id="zfit" title="Fit (0)" class="pct"><span id="pct">100%</span></button>
       <button id="zin" title="Zoom in (+)">+</button>
     </div>
+    <button id="fs" class="fsbtn" title="Full screen (f)" aria-label="Full screen">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"
+        stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" />
+      </svg>
+    </button>
   </header>
 
   <div id="stage">
@@ -354,6 +396,13 @@
     const CATEGORY_CSS = `
   .node rect, .node polygon, .node circle { rx: 10px; ry: 10px; }
   .cluster rect { rx: 12px; ry: 12px; }
+
+  /* Sequence diagrams: mermaid draws actor/note boxes as plain rects (actors
+     default to a barely-there rx:3, notes to none), so round them to match the
+     flowchart nodes. The par/loop frame is built from straight <line> segments,
+     not a rect, so its corners can't be rounded this way. */
+  rect.actor { rx: 8px; ry: 8px; }
+  rect.note { rx: 8px; ry: 8px; }
 
   .edgeLabel, .edgeLabel p { background: #11141a !important; color: #cfd5de !important; }
   .edgeLabel rect { fill: #11141a !important; opacity: 0.9 !important; }
@@ -402,6 +451,12 @@
         secondaryColor: "#15273f",
         tertiaryColor: "#21252e",
         fontSize: "15px",
+        // Sequence-diagram notes: mermaid's default is bright #fff5ad, which is
+        // the one element that fights the dark workbench. Re-cast them as warm,
+        // muted annotations keyed to the amber accent (--waiting: #d9a441).
+        noteBkgColor: "#2b2517",
+        noteBorderColor: "#9c7d3f",
+        noteTextColor: "#f0e2b8",
       },
       themeCSS: CATEGORY_CSS,
     });
@@ -490,6 +545,26 @@
       if (e.key === "+" || e.key === "=") zoomAt(1.2, ...center());
       else if (e.key === "-") zoomAt(1 / 1.2, ...center());
       else if (e.key === "0") { userInteracted = false; fit(); }
+      else if (e.key === "f" || e.key === "F") toggleFullscreen();
+    });
+
+    // ---- full-screen / immersive presentation ----
+    // The `immersive` class is the source of truth (hides the top bar, expands
+    // the stage). Native fullscreen is layered on best-effort, so exiting it via
+    // Esc also drops immersive and restores the bar.
+    function setImmersive(on) {
+      document.body.classList.toggle("immersive", on);
+      if (!userInteracted) requestAnimationFrame(fit);
+    }
+    function toggleFullscreen() {
+      const goImmersive = !document.body.classList.contains("immersive");
+      setImmersive(goImmersive);
+      if (goImmersive) document.documentElement.requestFullscreen?.().catch(() => { });
+      else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => { });
+    }
+    $("fs").onclick = toggleFullscreen;
+    document.addEventListener("fullscreenchange", () => {
+      if (!document.fullscreenElement && document.body.classList.contains("immersive")) setImmersive(false);
     });
 
     // ---- status ----
