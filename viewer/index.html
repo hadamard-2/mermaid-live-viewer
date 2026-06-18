@@ -404,6 +404,11 @@
   rect.actor { rx: 8px; ry: 8px; }
   rect.note { rx: 8px; ry: 8px; }
 
+  /* ER diagrams: attribute-less entities are plain rects (rounded by the rule
+     above). Entities WITH attributes are drawn by mermaid as rough.js <path>
+     elements (class outer-path), which rx/ry can't touch — those are rounded
+     in JS after render by roundErEntities(). */
+
   .edgeLabel, .edgeLabel p { background: #11141a !important; color: #cfd5de !important; }
   .edgeLabel rect { fill: #11141a !important; opacity: 0.9 !important; }
 
@@ -574,6 +579,61 @@
     }
 
     // ---- render ----
+    const SVGNS = "http://www.w3.org/2000/svg";
+
+    const ER_RADIUS = 10;
+    function roundedRect(b) {
+      const rect = document.createElementNS(SVGNS, "rect");
+      rect.setAttribute("x", b.x); rect.setAttribute("y", b.y);
+      rect.setAttribute("width", b.width); rect.setAttribute("height", b.height);
+      rect.setAttribute("rx", ER_RADIUS); rect.setAttribute("ry", ER_RADIUS);
+      return rect;
+    }
+
+    // Round the corners of ER entities that have attributes. Mermaid draws those
+    // as a stack of rough.js <path> elements (an `outer-path` box plus per-row
+    // rects), not a <rect>, so the rx/ry CSS that rounds every other node can't
+    // reach them. Two steps per entity:
+    //   1. Clip the group to a rounded rect so the row fills and inner grid lines
+    //      don't poke past the corners. (This is the only reliable cross-browser
+    //      way to round a path-built box — CSS `clip-path: inset(... round)` on
+    //      the group rounds only the TOP corners in Chromium.)
+    //   2. The clip halves the outer border stroke and squares its corners, so
+    //      paint a full-thickness rounded border back on top, OUTSIDE the clip.
+    //      The border reuses the entity's own stroke colour/width, so themed or
+    //      categorised entities still match.
+    // Attribute-less entities are real <rect>s and need none of this.
+    function roundErEntities(root) {
+      const svg = root.querySelector("svg");
+      if (!svg) return;
+      let defs = null, i = 0;
+      for (const ent of svg.querySelectorAll("g.node")) {
+        const outer = ent.querySelector(":scope > g.outer-path");
+        if (!outer) continue;
+        const b = outer.getBBox();
+
+        if (!defs) defs = svg.querySelector("defs") || svg.insertBefore(document.createElementNS(SVGNS, "defs"), svg.firstChild);
+        const clip = document.createElementNS(SVGNS, "clipPath");
+        clip.id = "er-round-" + i++;
+        clip.setAttribute("clipPathUnits", "userSpaceOnUse");
+        clip.appendChild(roundedRect(b));
+        defs.appendChild(clip);
+        ent.setAttribute("clip-path", `url(#${clip.id})`);
+
+        const strokePath = [...outer.querySelectorAll("path")].find(p => getComputedStyle(p).stroke !== "none");
+        const cs = strokePath && getComputedStyle(strokePath);
+        const border = roundedRect(b);
+        border.setAttribute("fill", "none");
+        border.setAttribute("stroke", cs ? cs.stroke : "#3a4150");
+        border.setAttribute("stroke-width", cs ? cs.strokeWidth : "1.3px");
+        const holder = document.createElementNS(SVGNS, "g");
+        holder.setAttribute("class", "er-border");
+        holder.setAttribute("transform", ent.getAttribute("transform") || "");
+        holder.appendChild(border);
+        ent.after(holder); // sibling, painted on top of the clipped entity
+      }
+    }
+
     let renderId = 0;
     let lastRendered = null; // content currently on screen — lets us skip no-op re-renders
     function showError(msg) {
@@ -596,6 +656,7 @@
         clearError();
         lastRendered = content;
         sheet.innerHTML = svg;
+        roundErEntities(sheet); // round attributed-ER entity corners (see note above)
         // flash confirmation
         sheet.classList.remove("flash");
         void sheet.offsetWidth; // restart animation
